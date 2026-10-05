@@ -50,7 +50,7 @@ public class MyAlgoStretchTest extends AbstractAlgoTest {
         
              
         encoder.askBookCount(1)
-          //  Use the price supplied by the test as the current best ask
+          // Use the price supplied by the test as the current best ask
           .next().price(askPrice).size(100L);
 
         encoder.instrumentStatus(InstrumentStatus.CONTINUOUS);

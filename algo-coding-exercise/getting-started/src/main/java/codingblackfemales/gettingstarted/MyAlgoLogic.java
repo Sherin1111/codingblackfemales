@@ -18,7 +18,7 @@ public class MyAlgoLogic implements AlgoLogic {
 
     private static final Logger logger = LoggerFactory.getLogger(MyAlgoLogic.class);
 
-    //Maximun quantity order
+    // Maximum order quantity
     private static final long MAX_ORDER_QUANTITY = 100;
 
     /* 
@@ -149,7 +149,7 @@ public class MyAlgoLogic implements AlgoLogic {
 
         // CASE 1: THERE IS ALREADY AN ACTIVE ORDER
 
-        //If there is an active order, check whether the best bid has changed
+        // If there is an active order, check whether the best bid has changed
         if (!activeOrders.isEmpty()) {
 
             // Get the first active child order
@@ -175,13 +175,14 @@ public class MyAlgoLogic implements AlgoLogic {
                 
                 // Compare the price of our existing order with the current best bid
                 // If they are equal, our order is already sitting at the correct price
-                //T herefore, there is no reason to cancel and recreate it
+                // Therefore, there is no reason to cancel and recreate it
                 if (childOrder.getPrice() == price) {
                     logger.info("No action required: active order already at " + price);
                     return NoAction.NoAction;
                 }
 
-                // If the best bid has changed, cancel the existing order. The algo will create a new order at the new price
+                // If the best bid has changed, cancel the existing order
+                // The algo can then be evaluated again and create a new order at the new best bid
                 logger.info("Cancelling order:" + childOrder);
                 return new CancelChildOrder(childOrder);
             }
@@ -190,7 +191,7 @@ public class MyAlgoLogic implements AlgoLogic {
                 return NoAction.NoAction;
             }
          } else {
-            //CASE 2: THERE IS NO ACTIVE ORDER
+            // CASE 2: THERE IS NO ACTIVE ORDER
 
             // We now look for the current best bid so that we can create a new BUY order
             BidLevel level = state.getBidAt(0);
@@ -213,10 +214,10 @@ public class MyAlgoLogic implements AlgoLogic {
 
             logger.info("Adding order for" + quantity + "@" + price);
 
-            //Create a BUY child order at the current best bid
-            //Side.BUY -> we want to buy
-            //quantity  -> maximum 100 shares
-            //price     -> current best bid
+            // Create a BUY child order at the current best bid
+            // Side.BUY -> we want to buy
+            // quantity  -> maximum 100 shares
+            // price     -> current best bid
             return new CreateChildOrder(Side.BUY, quantity, price);
 
          }
@@ -272,7 +273,7 @@ public class MyAlgoLogic implements AlgoLogic {
             if (!buyOrderCreated && tickCount > 3
                 && askLevel.price <= buyThreshold) {
 
-                //Limit the stretch-goal order to the same maximum quantity as the main algorithm
+                // Limit the stretch-goal order to the same maximum quantity as the main algorithm
                 long quantity = Math.min(askLevel.quantity, MAX_ORDER_QUANTITY);
 
             // Record the BUY so we know what price and quantity to sell later.

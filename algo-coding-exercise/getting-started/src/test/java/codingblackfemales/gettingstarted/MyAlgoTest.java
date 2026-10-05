@@ -37,7 +37,7 @@ public class MyAlgoTest extends AbstractAlgoTest {
 
     // Creates a second market-data scenario where the best bid changes from 98 to 95
     // This is used to test whether the algo cancels the existing order and creates a new order at the updated best bid
-    protected UnsafeBuffer createTick2() {
+    protected UnsafeBuffer createBestBidChangedTick() {
         final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
         final BookUpdateEncoder encoder = new BookUpdateEncoder();
 
@@ -133,11 +133,11 @@ public class MyAlgoTest extends AbstractAlgoTest {
     }
 
     @Test
-    public void testDispatchThroughSequencer() throws Exception {
+    public void testCreatesNewOrderWhenBestBidChanges() throws Exception {
 
         // Send the initial market-data tick
 
-        //The best bid in createTick() is 98, so the algo should create a BUY order at 98 with a quantity of 100
+        // The best bid in createTick() is 98, so the algo should create a BUY order at 98 with a quantity of 100
         send(createTick());
 
         // Check that one child order was created
@@ -152,7 +152,7 @@ public class MyAlgoTest extends AbstractAlgoTest {
         assertEquals(100, childOrder.getQuantity());
 
         // Send a second market-data tick where the best bid changes from 98 to 95
-        send(createTick2());
+        send(createBestBidChangedTick());
         
         // There should still be only one active order after the replacement
         assertEquals(1, container.getState().getActiveChildOrders().size()); 
