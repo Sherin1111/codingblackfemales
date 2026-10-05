@@ -37,6 +37,10 @@ public class MyAlgoLogic implements AlgoLogic {
     // Therefore, we buy if the ask price reaches 93 or lower
     private static final long BUY_DISCOUNT_PERCENT = 5;
 
+    // The stretch goal uses a 5% premium above the reference price
+    // as the point at which we are willing to sell
+    private static final long SELL_PREMIUM_PERCENT = 5;
+
     // Counts how many times evaluateStretch() has been called.
     // In the current implementation this is being used as a simple way
     // of counting market observations/ticks.
@@ -57,11 +61,15 @@ public class MyAlgoLogic implements AlgoLogic {
     // BUY_DISCOUNT_PERCENT is currently 5%.
     private long buyThreshold = 0;
 
-    // Originally intended to track the price paid for a stretch-goal position
-    // private long entryPrice = 0;
+    // The price at which the stretch goal will consider selling
+    // This is calculated as 105% of the reference price
+    private long sellThreshold = 0;
 
-    // Originally intended to track the quantity bought for a stretch-goal position
-    // private long entryQuantity = 0;  
+    // Stores the price paid when the stretch algo buys shares
+    private long entryPrice = 0;
+
+    // Stores the quantity bought so the same quantity can be sold later
+    private long entryQuantity = 0; 
 
     // Prevents the stretch algo from creating the same BUY order repeatedly
     // once the buying condition has been met
@@ -253,6 +261,8 @@ public class MyAlgoLogic implements AlgoLogic {
                 // Calculate the price we are willing to pay
                 buyThreshold = referencePrice * (100 - BUY_DISCOUNT_PERCENT) / 100;
 
+                // Calculate the price at which we are willing to sell
+                sellThreshold = referencePrice * (100 + SELL_PREMIUM_PERCENT) / 100;
             }
 
             // Only consider buying after the reference price has been calculated
@@ -260,13 +270,16 @@ public class MyAlgoLogic implements AlgoLogic {
             // !buyOrderCreated prevents the algo from creating another BUY every time evaluateStretch() is called after the threshold has been reached
             // askLevel.price <= buyThreshold means: The current ask is at or below the price we decided was cheap enough to buy
             if (!buyOrderCreated && tickCount > 3
-            && askLevel.price <= buyThreshold) {
+                && askLevel.price <= buyThreshold) {
 
                 //Limit the stretch-goal order to the same maximum quantity as the main algorithm
                 long quantity = Math.min(askLevel.quantity, MAX_ORDER_QUANTITY);
 
-            // Record that the stretch algo has created its BUY
-            // This prevents repeated BUY orders for the same opportunity
+            // Record the BUY so we know what price and quantity to sell later.
+            entryPrice = askLevel.price;
+            entryQuantity = quantity;
+
+            // Prevent the algo from creating another BUY before selling the current position
             buyOrderCreated = true;
 
             // Create the BUY at the current ask price
@@ -275,9 +288,26 @@ public class MyAlgoLogic implements AlgoLogic {
                     quantity,
                     askLevel.price
             );
+
         }
 
-        // If the buying conditions have not been met, do nothing
+           // Only consider selling after the stretch algo has bought shares
+            if (buyOrderCreated && entryQuantity > 0
+                && askLevel.price >= sellThreshold) {
+
+                // Reset the position so the algo can look for another BUY opportunity
+                buyOrderCreated = false;
+                entryPrice = 0;
+
+                 // Store the quantity being sold before resetting it
+                long quantityToSell = entryQuantity;
+                entryQuantity = 0;
+                
+                // Create the SELL at the current ask price
+                return new CreateChildOrder(Side.SELL, quantityToSell, askLevel.price);
+            } 
+
+        // If neither the buying nor selling conditions have been met, do nothing
         return NoAction.NoAction;
     
     }
