@@ -30,11 +30,13 @@ public class MyAlgoTest extends AbstractAlgoTest {
 
     @Override
     public AlgoLogic createAlgoLogic() {
-        //this adds your algo logic to the container classes
+        // Creates the MyAlgoLogic instance used by the test container
+        // The default constructor runs the main algorithm
         return new MyAlgoLogic();
     }
 
-    // I added a second market-data scenario to test how my algo responds when the best bid changes from 98 to 95
+    // Creates a second market-data scenario where the best bid changes from 98 to 95
+    // This is used to test whether the algo cancels the existing order and creates a new order at the updated best bid
     protected UnsafeBuffer createTick2() {
         final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
         final BookUpdateEncoder encoder = new BookUpdateEncoder();
@@ -50,6 +52,7 @@ public class MyAlgoTest extends AbstractAlgoTest {
         encoder.instrumentId(123L);
 
         encoder.bidBookCount(3)
+                 // New best bid: 95
                 .next().price(95L).size(100L)
                 .next().price(93L).size(200L)
                 .next().price(91L).size(300L);
@@ -66,6 +69,8 @@ public class MyAlgoTest extends AbstractAlgoTest {
         return directBuffer;
     }
 
+    // Creates market data where the best bid has 500 shares available
+    // This is used to test that the algo applies the maximum order quantity of 100 rather than creating an order for all 500 shares
     protected UnsafeBuffer createLargeQuantityTick() {
         
         final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
@@ -80,6 +85,7 @@ public class MyAlgoTest extends AbstractAlgoTest {
         encoder.instrumentId(123L);
 
         encoder.bidBookCount(3)
+            // 500 shares are available, so the algo should limit the order to 100
             .next().price(98L).size(500L)
             .next().price(95L).size(200L)
             .next().price(91L).size(300L);
@@ -96,6 +102,8 @@ public class MyAlgoTest extends AbstractAlgoTest {
         return directBuffer;
     }
 
+    // Creates market data with no bids in the order book
+    // This tests that the algo does not try to create a BUY order when there is no available bid price
     protected UnsafeBuffer createNoBidTick() {
         final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
         final BookUpdateEncoder encoder = new BookUpdateEncoder();
@@ -124,30 +132,69 @@ public class MyAlgoTest extends AbstractAlgoTest {
         return directBuffer;
     }
 
+    // STRETCH GOAL
+    // Creates a market-data tick with a configurable ask price
+    // The ask price is passed into the method so the stretch-goal test can simulate different market observations:
+    // 100 -> 98 -> 97 -> 93
+    // The bid side stays the same because the stretch test is focused
+    // on changes to the ask price
+    protected UnsafeBuffer createStretchTick(long askPrice) {
+        final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
+        final BookUpdateEncoder encoder = new BookUpdateEncoder();
+
+        final ByteBuffer byteBuffer = ByteBuffer.allocateDirect(1024);
+        final UnsafeBuffer directBuffer = new UnsafeBuffer(byteBuffer);
+
+        encoder.wrapAndApplyHeader(directBuffer, 0, headerEncoder);
+
+        encoder.venue(Venue.LME);
+        encoder.instrumentId(123L);
+
+        encoder.bidBookCount(3)
+    
+            .next().price(95L).size(100L)
+            .next().price(93L).size(200L)
+            .next().price(91L).size(300L);
+        
+             
+        encoder.askBookCount(1)
+          //  Use the price supplied by the test as the current best ask
+          .next().price(askPrice).size(100L);
+
+        encoder.instrumentStatus(InstrumentStatus.CONTINUOUS);
+        encoder.source(Source.STREAM);
+
+        return directBuffer;
+    }
+
     @Test
     public void testDispatchThroughSequencer() throws Exception {
 
-        //create a sample market data tick....
+        // Send the initial market-data tick
+
+        //The best bid in createTick() is 98, so the algo should create a BUY order at 98 with a quantity of 100
         send(createTick());
 
-         // I added these assertions to check that the algo creates a BUY order at the best bid price and quantity
+        // Check that one child order was created
         assertEquals(1, container.getState().getChildOrders().size());
 
        
         var childOrder = container.getState().getActiveChildOrders().get(0);
 
+        // Check the order side, price and quantity
         assertEquals(Side.BUY, childOrder.getSide());
         assertEquals(98, childOrder.getPrice());
         assertEquals(100, childOrder.getQuantity());
 
-        // This second market-data scenario changes the best bid from 98 to 95
+        // Send a second market-data tick where the best bid changes from 98 to 95
         send(createTick2());
         
-        // I added a second market-data scenario to check that the algo cancels the old order and creates a new one when the best bid changes
+        // There should still be only one active order after the replacement
         assertEquals(1, container.getState().getActiveChildOrders().size()); 
 
         var newChildOrder = container.getState().getActiveChildOrders().get(0);
 
+        // Check that the replacement order uses the new best bid of 95
         assertEquals(Side.BUY, newChildOrder.getSide());
         assertEquals(95, newChildOrder.getPrice());
         assertEquals(100, newChildOrder.getQuantity());
@@ -157,12 +204,13 @@ public class MyAlgoTest extends AbstractAlgoTest {
     @Test
     public void testMaximumOrderQuantity() throws Exception {
 
+        // Send market data where 500 shares are available at the best bid
+        // The algo has a maximum child-order quantity of 100, so it should only create an order for 100 shares
         send(createLargeQuantityTick());
 
-        // I added this assertion to check that theb algo limits the order quantity
-        // when the best bid has more quantity available than the maximum order size
         var childOrder = container.getState().getActiveChildOrders().get(0);
 
+         // Check that the order uses the best bid price and is limited to 100 shares
         assertEquals(98, childOrder.getPrice());
         assertEquals(100, childOrder.getQuantity());
     }
@@ -171,9 +219,47 @@ public class MyAlgoTest extends AbstractAlgoTest {
     @Test
     public void testNoBidDoesNotCreateOrder() throws Exception {
 
+        // Send market data with an empty bid side
+        // Without a best bid price, the algo should take no action and should not create a child order
         send(createNoBidTick());
 
         assertEquals(0, container.getState().getChildOrders().size());
        
     }
+
+    @Test
+    public void testStretchGoalBuildsReferenceBeforeBuying() throws Exception {
+
+    // The stretch goal uses several market observations to build a reference price before looking for a cheaper buying opportunity
+
+    //The overall goal is to BUY when the market is sufficiently below the reference price and SELL when it is sufficiently above it
+    
+    // First observation: best ask = 100
+    send(createStretchTick(100));
+
+    // Second observation: ask = 98
+    send(createStretchTick(98));
+
+    // Third observation: ask = 97
+    send(createStretchTick(97));
+
+    // Reference = (100 + 98 + 97) / 3 = 98
+    // 5% discount threshold = 98 * 95 / 100 = 93
+
+    //Therefore, the algo should consider buying when the ask reaches 93 or lower
+
+    // Fourth observation: ask = 93
+    // This should trigger the BUY.
+    send(createStretchTick(93));
+
+    var childOrder = container.getState()
+            .getActiveChildOrders()
+            .get(0);
+
+    // Check that the stretch algo created a BUY at the expected price
+    assertEquals(Side.BUY, childOrder.getSide());
+    assertEquals(93, childOrder.getPrice());
+    }
+
+    
 }
